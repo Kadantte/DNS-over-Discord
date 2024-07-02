@@ -1,6 +1,14 @@
+# IDEs
 .idea/
+.vscode/
+
+# NPM
 node_modules/
+
+# macOS
 .DS_Store
-tmp/
-dist/
+
+# Dev
 *.env
+.wrangler/
+dist/

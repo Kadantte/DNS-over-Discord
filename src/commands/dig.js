@@ -1,11 +1,12 @@
-import { InteractionResponseType, ApplicationCommandOptionType, ComponentType } from 'discord-api-types/payloads/v9';
+import { InteractionResponseType, ApplicationCommandOptionType, ComponentType } from 'discord-api-types/payloads';
+
 import { VALID_TYPES } from '../utils/dns.js';
 import { validateDomain, handleDig } from '../utils/dig.js';
-import { editDeferred } from '../utils/discord.js';
+import { captureException } from '../utils/error.js';
+import providers from '../utils/providers.js';
+
 import digRefresh from '../components/dig-refresh.js';
 import digProvider from '../components/dig-provider.js';
-import { captureException, contextualThrow } from '../utils/error.js';
-import providers from '../utils/providers.js';
 
 const optionTypes = Object.freeze(VALID_TYPES.slice(0, 25)); // Discord has a limit of 25 options
 
@@ -45,13 +46,13 @@ export default {
         {
             name: 'provider',
             description: 'DNS provider to use',
-            help: `Supported providers:\n  ${Object.keys(providers).join(', ')}\n\nDefaults to ${providers[0].name}.`,
+            help: `Supported providers:\n  ${providers.map(provider => provider.name).join(', ')}\n\nDefaults to ${providers[0].name}.`,
             type: ApplicationCommandOptionType.String,
             required: false,
             choices: providers.map(({ name }) => ({ name, value: name })),
         },
     ],
-    execute: async ({ interaction, response, wait, sentry }) => {
+    execute: async ({ interaction, response, wait, edit, context, sentry }) => {
         // Get the raw values from Discord
         const rawDomain = ((interaction.data.options.find(opt => opt.name === 'domain') || {}).value || '').trim();
         const rawType = ((interaction.data.options.find(opt => opt.name === 'type') || {}).value || '').trim();
@@ -60,8 +61,8 @@ export default {
         const rawProvider = ((interaction.data.options.find(opt => opt.name === 'provider') || {}).value || '').trim();
 
         // Parse domain input, return any error response
-        const { domain, error } = validateDomain(rawDomain, response);
-        if (error) return error;
+        const { domain, error } = validateDomain(rawDomain);
+        if (error) return response(error);
 
         // Validate type, fallback to 'A'
         const type = VALID_TYPES.includes(rawType) ? rawType : 'A';
@@ -78,10 +79,10 @@ export default {
                 options: { short: rawShort, cdflag: rawCdflag },
                 provider,
             };
-            const [ embed ] = await handleDig(opts).catch(err => contextualThrow(err, { dig: opts }));
+            const [ embed ] = await handleDig(opts, context.env.CACHE, sentry);
 
             // Edit the original deferred response
-            await editDeferred(interaction, {
+            await edit({
                 embeds: [ embed ],
                 components: [
                     {
@@ -103,7 +104,7 @@ export default {
             captureException(err, sentry);
 
             // Tell the user it errored
-            editDeferred(interaction, {
+            edit({
                 content: 'Sorry, something went wrong when processing your DNS query',
             }).catch(() => {}); // Ignore any further errors
 
